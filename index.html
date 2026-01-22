@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MapToPoster</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial;margin:24px;max-width:780px}
+    .card{border:1px solid #ddd;border-radius:14px;padding:16px}
+    label{display:block;margin-top:10px;font-weight:600}
+    input,select{width:100%;padding:10px;border:1px solid #ccc;border-radius:12px}
+    button{margin-top:14px;padding:10px 14px;border:0;border-radius:12px;cursor:pointer;background:#731d1f;color:#fff}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .msg{margin-top:12px;white-space:pre-wrap}
+    img{max-width:100%;border-radius:14px;border:1px solid #eee;margin-top:16px}
+    a{color:#731d1f}
+  </style>
+</head>
+<body>
+  <h1>MapToPoster</h1>
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>City</label>
+        <input id="city" value="Jakarta">
+      </div>
+      <div>
+        <label>Country</label>
+        <input id="country" value="Indonesia">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Theme</label>
+        <select id="theme"></select>
+      </div>
+      <div>
+        <label>Distance (meter)</label>
+        <input id="distance" type="number" min="1000" max="100000" step="1000" value="29000">
+      </div>
+    </div>
+
+    <button id="btn">Generate</button>
+    <div id="msg" class="msg"></div>
+    <img id="preview" style="display:none"/>
+    <p id="dlwrap" style="display:none"><a id="dl" download="map.png">Download PNG</a></p>
+  </div>
+
+<script>
+  const API_BASE = "https://maptoposter-api.onrender.com";
+
+  const msg = (t) => document.getElementById("msg").textContent = t || "";
+  const preview = document.getElementById("preview");
+  const dlwrap = document.getElementById("dlwrap");
+  const dl = document.getElementById("dl");
+
+  async function loadThemes(){
+    msg("Loading themes...");
+    const r = await fetch(`${API_BASE}/health`);
+    if(!r.ok) throw new Error("Failed to load themes");
+    const j = await r.json();
+    const sel = document.getElementById("theme");
+    sel.innerHTML = "";
+    (j.themes || []).forEach(t=>{
+      const o = document.createElement("option");
+      o.value = t; o.textContent = t;
+      sel.appendChild(o);
+    });
+    msg("");
+  }
+
+  async function generate(){
+    msg("Generating... (request pertama bisa agak lama karena Render free tier sleep)");
+    preview.style.display = "none";
+    dlwrap.style.display = "none";
+
+    const payload = {
+      city: document.getElementById("city").value,
+      country: document.getElementById("country").value,
+      theme: document.getElementById("theme").value,
+      distance: Number(document.getElementById("distance").value)
+    };
+
+    const r = await fetch(`${API_BASE}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if(!r.ok){
+      let err = "Failed";
+      try { err = (await r.json()).detail || err; } catch(e){}
+      msg("Error: " + err);
+      return;
+    }
+
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+
+    preview.src = url;
+    preview.style.display = "block";
+
+    dl.href = url;
+    dl.download = `${payload.city}_${payload.theme}.png`;
+    dlwrap.style.display = "block";
+
+    msg("Done!");
+  }
+
+  document.getElementById("btn").addEventListener("click", generate);
+  loadThemes().catch(e => msg("Error: " + e.message));
+</script>
+</body>
+</html>
