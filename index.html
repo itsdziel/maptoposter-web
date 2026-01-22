@@ -70,43 +70,79 @@
     msg("");
   }
 
-  async function generate(){
-    msg("Generating... (request pertama bisa agak lama karena Render free tier sleep)");
-    preview.style.display = "none";
-    dlwrap.style.display = "none";
+async function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-    const payload = {
-      city: document.getElementById("city").value,
-      country: document.getElementById("country").value,
-      theme: document.getElementById("theme").value,
-      distance: Number(document.getElementById("distance").value)
-    };
+async function generate(){
+  msg("Starting job...");
+  preview.style.display = "none";
+  dlwrap.style.display = "none";
 
-    const r = await fetch(`${API_BASE}/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+  const payload = {
+    city: document.getElementById("city").value,
+    country: document.getElementById("country").value,
+    theme: document.getElementById("theme").value,
+    distance: Number(document.getElementById("distance").value)
+  };
 
-    if(!r.ok){
-      let err = "Failed";
-      try { err = (await r.json()).detail || err; } catch(e){}
-      msg("Error: " + err);
+  // 1) Start async job
+  const start = await fetch(`${API_BASE}/generate_async`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if(!start.ok){
+    let err = "Failed to start job";
+    try { err = (await start.json()).detail || err; } catch(e){}
+    msg("Error: " + err);
+    return;
+  }
+
+  const startJson = await start.json();
+  const jobId = startJson.job_id;
+
+  // 2) Poll job status
+  for(let i=0; i<120; i++){ // up to ~120 * 2s = 240s
+    msg(`Generating... (job ${jobId})`);
+    const st = await fetch(`${API_BASE}/job/${jobId}`);
+    if(!st.ok){
+      msg("Error: failed to check job status");
+      return;
+    }
+    const j = await st.json();
+
+    if(j.status === "DONE"){
+      // 3) Download image
+      const imgRes = await fetch(`${API_BASE}/download/${jobId}`);
+      if(!imgRes.ok){
+        msg("Error: failed to download result");
+        return;
+      }
+      const blob = await imgRes.blob();
+      const url = URL.createObjectURL(blob);
+
+      preview.src = url;
+      preview.style.display = "block";
+
+      dl.href = url;
+      dl.download = `${payload.city}_${payload.theme}.png`;
+      dlwrap.style.display = "block";
+
+      msg("Done!");
       return;
     }
 
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
+    if(j.status === "ERROR"){
+      msg("Error: " + (j.message || "Generation failed"));
+      return;
+    }
 
-    preview.src = url;
-    preview.style.display = "block";
-
-    dl.href = url;
-    dl.download = `${payload.city}_${payload.theme}.png`;
-    dlwrap.style.display = "block";
-
-    msg("Done!");
+    await sleep(2000);
   }
+
+  msg("Error: still running, please try again.");
+}
+
 
   document.getElementById("btn").addEventListener("click", generate);
   loadThemes().catch(e => msg("Error: " + e.message));
